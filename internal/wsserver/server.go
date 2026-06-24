@@ -1,6 +1,7 @@
 package wsserver
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,11 +13,12 @@ import (
 
 const (
 	templateDir = "./web/templates/html"
-	staticDir   = "./web/static/"
+	staticDir   = "./web/static"
 )
 
 type WSServer interface {
 	Start() error
+	Stop() error
 }
 
 type wsSrv struct {
@@ -44,17 +46,30 @@ func NewWsServer(addr string) WSServer {
 }
 
 func (ws *wsSrv) Start() error {
-	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	go ws.writeToClientsBroadcast()
 	return ws.srv.ListenAndServe()
 }
 
+func (ws *wsSrv) Stop() error {
+	close(ws.broadcast)
+	ws.mutex.Lock()
+	for conn := range ws.wsClients {
+		if err := conn.Close(); err != nil {
+			fmt.Println("error with closing: v%", err)
+		}
+		delete(ws.wsClients, conn)
+	}
+	ws.mutex.Unlock()
+	return ws.srv.Shutdown(context.Background())
+}
+
 func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := ws.wsUpg.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("error with websocket connection: v%", err)
+		fmt.Printf("error with websocket connection: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -69,7 +84,10 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 	for {
 		msg := new(wsMessage)
 		if err := conn.ReadJSON(msg); err != nil {
-			fmt.Println("error with reading from WebSocket: v%", err)
+			wsErr, ok := err.(*websocket.CloseError)
+			if !ok || wsErr.Code != websocket.CloseGoingAway {
+				fmt.Printf("error with reading from WebSocket: %v", err)
+			}
 			break
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
@@ -91,7 +109,7 @@ func (ws *wsSrv) writeToClientsBroadcast() {
 		for client := range ws.wsClients {
 			func() {
 				if err := client.WriteJSON(msg); err != nil {
-					fmt.Println("error with writing message: v%", err)
+					fmt.Printf("error with writing message: %v", err)
 				}
 			}()
 		}
