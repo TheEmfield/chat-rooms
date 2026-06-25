@@ -1,0 +1,11 @@
+logger:
+  level: debug
+  format: text
+
+server:
+  host: "0.0.0.0"
+  port: "8080"
+  number_rooms: 3
+  number_clients: 5
+  number_messages: 50
+  shutdown_timeout: "20s"

@@ -2,7 +2,7 @@ package wsserver
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -28,9 +28,10 @@ type wsSrv struct {
 	wsClients map[*websocket.Conn]struct{}
 	mutex     *sync.RWMutex
 	broadcast chan *wsMessage
+	logger    *slog.Logger
 }
 
-func NewWsServer(addr string) WSServer {
+func NewWsServer(addr string, l *slog.Logger) WSServer {
 	m := http.NewServeMux()
 	return &wsSrv{
 		mux: m,
@@ -42,6 +43,7 @@ func NewWsServer(addr string) WSServer {
 		wsClients: map[*websocket.Conn]struct{}{},
 		mutex:     &sync.RWMutex{},
 		broadcast: make(chan *wsMessage),
+		logger:    l,
 	}
 }
 
@@ -58,7 +60,7 @@ func (ws *wsSrv) Stop() error {
 	ws.mutex.Lock()
 	for conn := range ws.wsClients {
 		if err := conn.Close(); err != nil {
-			fmt.Println("error with closing: v%", err)
+			ws.logger.Error("error with closing", "error", err)
 		}
 		delete(ws.wsClients, conn)
 	}
@@ -69,11 +71,11 @@ func (ws *wsSrv) Stop() error {
 func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := ws.wsUpg.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Printf("error with websocket connection: %v", err)
+		ws.logger.Error("error with websocket connection", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	fmt.Println(conn.RemoteAddr().String())
+	ws.logger.Info("new client - " + conn.RemoteAddr().String())
 	ws.mutex.Lock()
 	ws.wsClients[conn] = struct{}{}
 	ws.mutex.Unlock()
@@ -86,13 +88,13 @@ func (ws *wsSrv) readFromClient(conn *websocket.Conn) {
 		if err := conn.ReadJSON(msg); err != nil {
 			wsErr, ok := err.(*websocket.CloseError)
 			if !ok || wsErr.Code != websocket.CloseGoingAway {
-				fmt.Printf("error with reading from WebSocket: %v", err)
+				ws.logger.Error("error with reading from WebSocket", "error", err)
 			}
 			break
 		}
 		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 		if err != nil {
-			fmt.Println("error with address split: v%", err)
+			ws.logger.Error("error with address split", "error", err)
 		}
 		msg.IPAddress = host
 		msg.Time = time.Now().Format("15:04")
@@ -109,7 +111,7 @@ func (ws *wsSrv) writeToClientsBroadcast() {
 		for client := range ws.wsClients {
 			func() {
 				if err := client.WriteJSON(msg); err != nil {
-					fmt.Printf("error with writing message: %v", err)
+					ws.logger.Error("error with writing message", "error", err)
 				}
 			}()
 		}
