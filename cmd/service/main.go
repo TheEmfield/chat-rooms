@@ -43,7 +43,7 @@ func main() {
 }
 
 func run(cfg *config.Config, logger *slog.Logger) error {
-	wsSrv := wsserver.NewWsServer(cfg.HTTP.Host+":"+cfg.HTTP.Port, logger)
+	wsSrv := wsserver.NewWsServer(cfg, logger)
 	logger.Info("start server")
 	if err := wsSrv.Start(); err != nil {
 		return fmt.Errorf("error with wsserver: %v", err)
