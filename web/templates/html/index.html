@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Chat</title>
-    <!-- Bootstrap CSS -->
+    <title>Chat Rooms</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <style>
         #chat {
             border: 1px solid #ccc;
             padding: 10px;
             width: 100%;
-            height: 300px;
+            height: 400px;
             margin-bottom: 10px;
             overflow-y: scroll;
             background-color: #f8f9fa;
@@ -19,12 +18,15 @@
         }
         .message {
             margin-bottom: 8px;
-            padding: 5px;
+            padding: 8px;
             border-bottom: 1px solid #ddd;
             word-wrap: break-word;
+            background-color: #fff;
+            border-radius: 5px;
         }
         .message .address {
             font-weight: bold;
+            color: #0d6efd;
         }
         .message .time {
             float: right;
@@ -34,30 +36,159 @@
         .message .text {
             clear: both;
             font-size: 0.9em;
+            margin-top: 4px;
         }
-        .my-message .address {
-            color: #0d6efd;
+        #login-screen {
+            max-width: 500px;
+            margin: 50px auto;
+        }
+        #chat-screen {
+            display: none;
+        }
+        .room-card {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .room-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .room-card.full {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .room-card.full:hover {
+            transform: none;
+            box-shadow: none;
         }
     </style>
 </head>
 <body class="container-sm py-4">
-<h2 class="text-center mb-3">WebSocket Chat</h2>
-<div id="chat"></div>
-<div class="input-group">
-    <input type="text" id="messageInput" class="form-control" placeholder="Type a message">
-    <button id="sendButton" class="btn btn-primary">Send</button>
+
+<!-- Экран выбора комнаты -->
+<div id="login-screen">
+    <h2 class="text-center mb-4">Chat Rooms</h2>
+    <p class="text-center text-muted mb-4">Выберите комнату для входа</p>
+    <div id="rooms-list" class="row g-3">
+        <!-- Заполнится из /api/rooms -->
+        <div class="text-center text-muted">Загрузка комнат...</div>
+    </div>
+</div>
+
+<!-- Экран чата -->
+<div id="chat-screen">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Комната: <span id="roomName" class="text-primary"></span></h3>
+        <button id="leaveButton" class="btn btn-outline-secondary btn-sm">Выйти</button>
+    </div>
+    <div id="chat"></div>
+    <div class="input-group">
+        <input type="text" id="messageInput" class="form-control" placeholder="Введите сообщение...">
+        <button id="sendButton" class="btn btn-primary">Отправить</button>
+    </div>
 </div>
 
 <script>
-    const socket = new WebSocket('ws://' + window.location.host + '/ws');
-    const chat = document.getElementById('chat');
-    const messageInput = document.getElementById('messageInput');
-    const sendButton = document.getElementById('sendButton');
+    let socket = null;
+    let currentRoom = null;
 
-    // Добавление сообщения в чат
-    function addMessage(time, address, message, isMyMessage) {
+    // Загружаем список комнат при старте
+    loadRooms();
+
+    function loadRooms() {
+        fetch('/api/rooms')
+            .then(response => response.json())
+            .then(rooms => {
+                const list = document.getElementById('rooms-list');
+                list.innerHTML = '';
+
+                if (rooms.length === 0) {
+                    list.innerHTML = '<div class="text-center text-muted">Комнаты не найдены</div>';
+                    return;
+                }
+
+                rooms.forEach(room => {
+                    const isFull = room.clients >= room.capacity;
+                    const col = document.createElement('div');
+                    col.className = 'col-md-6';
+                    col.innerHTML = `
+                        <div class="card room-card ${isFull ? 'full' : ''}" data-room="${room.id}">
+                            <div class="card-body">
+                                <h5 class="card-title">${room.id}</h5>
+                                <p class="card-text mb-1">
+                                    Клиентов: <strong>${room.clients}</strong> / ${room.capacity}
+                                </p>
+                                ${isFull 
+                                    ? '<span class="badge bg-danger">Переполнена</span>' 
+                                    : '<span class="badge bg-success">Свободна</span>'}
+                            </div>
+                        </div>
+                    `;
+
+                    if (!isFull) {
+                        col.querySelector('.room-card').addEventListener('click', () => joinRoom(room.id));
+                    }
+
+                    list.appendChild(col);
+                });
+            })
+            .catch(err => {
+                document.getElementById('rooms-list').innerHTML = 
+                    `<div class="text-center text-danger">Ошибка загрузки: ${err.message}</div>`;
+            });
+    }
+
+    function joinRoom(roomId) {
+        currentRoom = roomId;
+        document.getElementById('roomName').textContent = roomId;
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('chat-screen').style.display = 'block';
+
+        connectWebSocket(roomId);
+    }
+
+    function leaveRoom() {
+        if (socket) {
+            socket.close();
+            socket = null;
+        }
+        currentRoom = null;
+        document.getElementById('chat').innerHTML = '';
+        document.getElementById('login-screen').style.display = 'block';
+        document.getElementById('chat-screen').style.display = 'none';
+        loadRooms();
+    }
+
+    function connectWebSocket(roomId) {
+        const wsUrl = `ws://${window.location.host}/ws?room=${encodeURIComponent(roomId)}`;
+        socket = new WebSocket(wsUrl);
+
+        socket.addEventListener('open', () => {
+            console.log('Connected to room:', roomId);
+        });
+
+        socket.addEventListener('message', function(event) {
+            const msg = JSON.parse(event.data);
+            addMessage(msg.time, msg.address, msg.message);
+        });
+
+        socket.addEventListener('close', function(event) {
+            if (currentRoom) {
+                addMessage('--', 'Система', 'Соединение закрыто');
+            }
+        });
+
+        socket.addEventListener('error', function(error) {
+            console.error('WebSocket error:', error);
+            alert('Ошибка подключения к комнате. Возможно, она переполнена.');
+            leaveRoom();
+        });
+    }
+
+    function addMessage(time, address, message) {
+        const chat = document.getElementById('chat');
         const messageElement = document.createElement('div');
-        messageElement.classList.add('message', 'p-2', 'bg-light', 'rounded');
+        messageElement.classList.add('message');
 
         const addressElement = document.createElement('div');
         addressElement.classList.add('address');
@@ -79,29 +210,23 @@
         chat.scrollTop = chat.scrollHeight;
     }
 
-    // Обработчик для получения сообщений от сервера
-    socket.addEventListener('message', function(event) {
-        const msg = JSON.parse(event.data);
-        addMessage(msg.time, msg.address, msg.message, msg.mymessage);
-    });
-
-    // Обработчик для кнопки отправки сообщения
-    sendButton.addEventListener('click', function() {
-        const message = messageInput.value;
-        if (message) {
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const message = input.value.trim();
+        if (message && socket && socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ message: message }));
-            messageInput.value = '';
+            input.value = '';
         }
-    });
+    }
 
-    // Обработчик для отправки сообщения по нажатию клавиши Enter
-    messageInput.addEventListener('keypress', function(event) {
+    document.getElementById('sendButton').addEventListener('click', sendMessage);
+    document.getElementById('messageInput').addEventListener('keypress', function(event) {
         if (event.key === 'Enter') {
-            sendButton.click();
+            sendMessage();
         }
     });
+    document.getElementById('leaveButton').addEventListener('click', leaveRoom);
 </script>
-<!-- Bootstrap JS -->
 <script src="/static/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
