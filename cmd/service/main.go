@@ -71,5 +71,6 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}
 
 	logger.Info("server stopped gracefully")
+
 	return nil
 }
