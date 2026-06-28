@@ -17,6 +17,6 @@ type HTTP struct {
 	Port            string        `yaml:"port"             env:"HTTP_PORT"             env-default:"8080"`
 	NumberRooms     int           `yaml:"number_rooms"     env:"HTTP_NUMBER_ROOMS"     env-default:"3"`
 	NumberClients   int           `yaml:"number_clients"   env:"HTTP_NUMBER_CLIENTS"   env-default:"5"`
-	NumberMessages  int           `yaml:"number_messages"  env:"HTTP_NUMBER_MESSAGES"  env-default:"50"`
+	NumberMessages  int           `yaml:"number_messages"  env:"HTTP_NUMBER_MESSAGES"  env-default:"30"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"HTTP_SHUTDOWN_TIMEOUT" env-default:"20s"`
 }

@@ -169,7 +169,6 @@
 
         socket.addEventListener('message', function(event) {
             const msg = JSON.parse(event.data);
-            
             if (msg.type === 'history') {
                 msg.messages.forEach(m => {
                     addMessage(m.time, m.address, m.message, false);

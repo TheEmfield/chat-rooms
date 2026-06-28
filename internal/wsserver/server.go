@@ -60,6 +60,37 @@ func (r *room) isFull() bool {
 	return len(r.rmClients) >= r.capacity
 }
 
+func (r *room) readFromClient(conn *websocket.Conn) {
+	for {
+		msg := new(wsMessage)
+		if err := conn.ReadJSON(msg); err != nil {
+			rmErr, ok := err.(*websocket.CloseError)
+			if !ok || rmErr.Code != websocket.CloseGoingAway {
+				r.logger.Error("error with reading from WebSocket", "error", err)
+			}
+			break
+		}
+		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+		if err != nil {
+			r.logger.Error("error with address split", "error", err)
+		}
+		msg.IPAddress = host
+		msg.Time = time.Now().Format("15:04")
+
+		r.mutex.Lock()
+		r.messages = append(r.messages, msg)
+		if len(r.messages) > r.maxMessages {
+			r.messages = r.messages[len(r.messages)-r.maxMessages:]
+		}
+		r.mutex.Unlock()
+
+		r.broadcast <- msg
+	}
+	r.mutex.Lock()
+	delete(r.rmClients, conn)
+	r.mutex.Unlock()
+}
+
 type wsSrv struct {
 	srv     *http.Server
 	mux     *http.ServeMux
@@ -188,37 +219,6 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go room.readFromClient(conn)
-}
-
-func (r *room) readFromClient(conn *websocket.Conn) {
-	for {
-		msg := new(wsMessage)
-		if err := conn.ReadJSON(msg); err != nil {
-			rmErr, ok := err.(*websocket.CloseError)
-			if !ok || rmErr.Code != websocket.CloseGoingAway {
-				r.logger.Error("error with reading from WebSocket", "error", err)
-			}
-			break
-		}
-		host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
-		if err != nil {
-			r.logger.Error("error with address split", "error", err)
-		}
-		msg.IPAddress = host
-		msg.Time = time.Now().Format("15:04")
-
-		r.mutex.Lock()
-		r.messages = append(r.messages, msg)
-		if len(r.messages) > r.maxMessages {
-			r.messages = r.messages[len(r.messages)-r.maxMessages:]
-		}
-		r.mutex.Unlock()
-
-		r.broadcast <- msg
-	}
-	r.mutex.Lock()
-	delete(r.rmClients, conn)
-	r.mutex.Unlock()
 }
 
 func (ws *wsSrv) writeToClientsBroadcast() {

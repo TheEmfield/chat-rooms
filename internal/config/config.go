@@ -16,7 +16,7 @@ func Load(path string) (*Config, error) {
 		}
 	} else {
 		if err := cleanenv.ReadEnv(cfg); err != nil {
-			return nil, fmt.Errorf("get env variables fail: %w", err)
+			return nil, fmt.Errorf("get environment variables fail: %w", err)
 		}
 	}
 
