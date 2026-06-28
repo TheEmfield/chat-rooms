@@ -169,7 +169,15 @@
 
         socket.addEventListener('message', function(event) {
             const msg = JSON.parse(event.data);
-            addMessage(msg.time, msg.address, msg.message);
+            
+            if (msg.type === 'history') {
+                msg.messages.forEach(m => {
+                    addMessage(m.time, m.address, m.message, false);
+                });
+                return;
+            }
+            
+            addMessage(msg.time, msg.address, msg.message, false);
         });
 
         socket.addEventListener('close', function(event) {

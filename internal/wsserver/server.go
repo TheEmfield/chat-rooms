@@ -172,9 +172,21 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ws.logger.Info("new client", "addr", conn.RemoteAddr().String(), "room", roomID)
+
 	room.mutex.Lock()
 	room.rmClients[conn] = struct{}{}
+	history := make([]*wsMessage, len(room.messages))
+	copy(history, room.messages)
 	room.mutex.Unlock()
+
+	if len(history) > 0 {
+		historyMsg := &wsMessage{
+			Type:     "history",
+			Messages: history,
+		}
+		conn.WriteJSON(historyMsg)
+	}
+
 	go room.readFromClient(conn)
 }
 
@@ -194,6 +206,14 @@ func (r *room) readFromClient(conn *websocket.Conn) {
 		}
 		msg.IPAddress = host
 		msg.Time = time.Now().Format("15:04")
+
+		r.mutex.Lock()
+		r.messages = append(r.messages, msg)
+		if len(r.messages) > r.maxMessages {
+			r.messages = r.messages[len(r.messages)-r.maxMessages:]
+		}
+		r.mutex.Unlock()
+
 		r.broadcast <- msg
 	}
 	r.mutex.Lock()
