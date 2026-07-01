@@ -179,12 +179,6 @@
             addMessage(msg.time, msg.address, msg.message, false);
         });
 
-        socket.addEventListener('close', function(event) {
-            if (currentRoom) {
-                addMessage('--', 'Система', 'Соединение закрыто');
-            }
-        });
-
         socket.addEventListener('error', function(error) {
             console.error('WebSocket error:', error);
             alert('Ошибка подключения к комнате. Возможно, она переполнена.');

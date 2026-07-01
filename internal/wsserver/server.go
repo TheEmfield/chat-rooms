@@ -21,7 +21,7 @@ const (
 
 type WSServer interface {
 	Start() error
-	Stop() error
+	Stop(ctx context.Context) error
 }
 
 type room struct {
@@ -92,12 +92,14 @@ func (r *room) readFromClient(conn *websocket.Conn) {
 }
 
 type wsSrv struct {
-	srv     *http.Server
-	mux     *http.ServeMux
-	wsUpg   *websocket.Upgrader
-	wsRooms map[string]*room
-	mutex   *sync.RWMutex
-	logger  *slog.Logger
+	srv         *http.Server
+	mux         *http.ServeMux
+	wsUpg       *websocket.Upgrader
+	wsRooms     map[string]*room
+	mutex       *sync.RWMutex
+	logger      *slog.Logger
+	wgRead      *sync.WaitGroup
+	wgBroadcast *sync.WaitGroup
 }
 
 func NewWsServer(cfg *config.Config, l *slog.Logger) WSServer {
@@ -115,10 +117,12 @@ func NewWsServer(cfg *config.Config, l *slog.Logger) WSServer {
 			Addr:    cfg.HTTP.Host + ":" + cfg.HTTP.Port,
 			Handler: m,
 		},
-		wsUpg:   &websocket.Upgrader{},
-		wsRooms: rooms,
-		mutex:   &sync.RWMutex{},
-		logger:  l,
+		wsUpg:       &websocket.Upgrader{},
+		wsRooms:     rooms,
+		mutex:       &sync.RWMutex{},
+		logger:      l,
+		wgRead:      &sync.WaitGroup{},
+		wgBroadcast: &sync.WaitGroup{},
 	}
 }
 
@@ -127,13 +131,22 @@ func (ws *wsSrv) Start() error {
 	ws.mux.Handle("/", http.FileServer(http.Dir(templateDir)))
 	ws.mux.HandleFunc("/ws", ws.wsHandler)
 	ws.mux.HandleFunc("/api/rooms", ws.roomsHandler)
-	go ws.writeToClientsBroadcast()
+	for _, room_ := range ws.wsRooms {
+		ws.wgBroadcast.Add(1)
+		go func(r *room) {
+			defer ws.wgBroadcast.Done()
+			ws.broadcastRoom(r)
+		}(room_)
+	}
 	return ws.srv.ListenAndServe()
 }
 
-func (ws *wsSrv) Stop() error {
-	ws.mutex.RLock()
-	defer ws.mutex.Unlock()
+func (ws *wsSrv) Stop(ctx context.Context) error {
+	if err := ws.srv.Shutdown(ctx); err != nil {
+		ws.logger.Error("HTTP shutdown error", "error", err)
+	}
+
+	ws.mutex.Lock()
 	for _, room := range ws.wsRooms {
 		room.mutex.Lock()
 		for conn := range room.rmClients {
@@ -144,13 +157,17 @@ func (ws *wsSrv) Stop() error {
 		}
 		room.mutex.Unlock()
 	}
-	ws.mutex.RUnlock()
+	ws.mutex.Unlock()
+
+	ws.wgRead.Wait()
 
 	for _, room := range ws.wsRooms {
 		close(room.broadcast)
 	}
 
-	return ws.srv.Shutdown(context.Background())
+	ws.wgBroadcast.Wait()
+
+	return nil
 }
 
 func (ws *wsSrv) roomsHandler(w http.ResponseWriter, r *http.Request) {
@@ -218,13 +235,11 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 		conn.WriteJSON(historyMsg)
 	}
 
-	go room.readFromClient(conn)
-}
-
-func (ws *wsSrv) writeToClientsBroadcast() {
-	for _, room := range ws.wsRooms {
-		go ws.broadcastRoom(room)
-	}
+	ws.wgRead.Add(1)
+	go func() {
+		defer ws.wgRead.Done()
+		room.readFromClient(conn)
+	}()
 }
 
 func (ws *wsSrv) broadcastRoom(r *room) {
