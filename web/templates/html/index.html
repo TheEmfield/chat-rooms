@@ -169,7 +169,6 @@
 
         socket.addEventListener('message', function(event) {
             const msg = JSON.parse(event.data);
-            
             if (msg.type === 'history') {
                 msg.messages.forEach(m => {
                     addMessage(m.time, m.address, m.message, false);
@@ -178,12 +177,6 @@
             }
             
             addMessage(msg.time, msg.address, msg.message, false);
-        });
-
-        socket.addEventListener('close', function(event) {
-            if (currentRoom) {
-                addMessage('--', 'Система', 'Соединение закрыто');
-            }
         });
 
         socket.addEventListener('error', function(error) {

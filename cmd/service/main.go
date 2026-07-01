@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -44,30 +45,33 @@ func main() {
 
 func run(cfg *config.Config, logger *slog.Logger) error {
 	wsSrv := wsserver.NewWsServer(cfg, logger)
-	logger.Info("start server")
-	if err := wsSrv.Start(); err != nil {
-		return fmt.Errorf("error with wsserver: %v", err)
-	}
-
-	crashed := make(chan struct{}, 1)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	select {
-	case <-crashed:
-		return errors.New("server crashed")
+	crashed := make(chan error, 1)
 
+	go func() {
+		logger.Info("start server")
+		if err := wsSrv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			crashed <- fmt.Errorf("server crashed: %w", err)
+		}
+		close(crashed)
+	}()
+
+	select {
+	case err := <-crashed:
+		return err
 	case <-ctx.Done():
+		logger.Info("received shutdown signal")
 	}
 
 	logger.Info("starting shutdown server")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+	defer shutdownCancel()
 
-	ctx, cancel = context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
-	defer cancel()
-
-	if err := wsSrv.Stop(); err != nil {
-		return fmt.Errorf("shutdown server, %w", err)
+	if err := wsSrv.Stop(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown server: %w", err)
 	}
 
 	logger.Info("server stopped gracefully")

@@ -7,5 +7,5 @@ server:
   port: "8080"
   number_rooms: 3
   number_clients: 5
-  number_messages: 50
+  number_messages: 30
   shutdown_timeout: "20s"
