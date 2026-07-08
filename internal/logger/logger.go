@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrUnknownLevel  = errors.New("unknown log level")
 	ErrUnknownFormat = errors.New("unknown log format")
+	ErrUnknownLevel  = errors.New("unknown log level")
 )
 
 func Setup(cfg *config.Logger) (*slog.Logger, error) {
