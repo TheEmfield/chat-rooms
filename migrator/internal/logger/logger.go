@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/TheEmfield/chat-rooms/internal/config"
+	"github.com/TheEmdield/chat-rooms/migrator/internal/config"
 )
 
 var (
-	ErrUnknownFormat = errors.New("unknown log format")
 	ErrUnknownLevel  = errors.New("unknown log level")
+	ErrUnknownFormat = errors.New("unknown log format")
 )
 
 func Setup(cfg *config.Logger) (*slog.Logger, error) {

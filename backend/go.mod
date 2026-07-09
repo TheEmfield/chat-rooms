@@ -1,4 +1,4 @@
-module github.com/TheEmfield/chat-rooms
+module github.com/TheEmfield/chat-rooms/backend
 
 go 1.25.0
 

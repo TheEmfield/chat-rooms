@@ -1,6 +1,64 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chat-rooms-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chatuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatpass}
+      POSTGRES_DB: ${POSTGRES_DB:-chatrooms}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chatuser} -d ${POSTGRES_DB:-chatrooms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - chat-network
+
+  postgres_migrate:
+    container_name: chat-rooms-migrate
+    build:
+      context: ./migrator
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chatuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatpass}
+      POSTGRES_DB: ${POSTGRES_DB:-chatrooms}
+    entrypoint: ["./migrator"]
+    command: ["up", "-path=/migrations", "-database=postgres://${POSTGRES_USER:-chatuser}:${POSTGRES_PASSWORD:-chatpass}@postgres:5432/${POSTGRES_DB:-chatrooms}?sslmode=disable"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chat-network
+
   chat-server:
-    build: .
     container_name: chat-rooms
+    build:
+      context: ./backend
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chatuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatpass}
+      POSTGRES_DB: ${POSTGRES_DB:-chatrooms}
+      DB_HOST: postgres
+      DB_PORT: 5432
     ports:
       - "8080:8080"
+    volumes:
+      - ./backend/config.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres_migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - chat-network
+
+volumes:
+  postgres_data:
+
+networks:
+  chat-network:
+    driver: bridge

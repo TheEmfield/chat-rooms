@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TheEmfield/chat-rooms/internal/config"
+	"github.com/TheEmfield/chat-rooms/backend/internal/config"
 	"github.com/gorilla/websocket"
 )
 

@@ -11,9 +11,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/TheEmfield/chat-rooms/internal/config"
-	"github.com/TheEmfield/chat-rooms/internal/logger"
-	"github.com/TheEmfield/chat-rooms/internal/wsserver"
+	"github.com/TheEmfield/chat-rooms/backend/internal/config"
+	"github.com/TheEmfield/chat-rooms/backend/internal/logger"
+	"github.com/TheEmfield/chat-rooms/backend/internal/wsserver"
 )
 
 func main() {
