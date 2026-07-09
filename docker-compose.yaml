@@ -1,0 +1,6 @@
+services:
+  chat-server:
+    build: .
+    container_name: chat-rooms
+    ports:
+      - "8080:8080"
