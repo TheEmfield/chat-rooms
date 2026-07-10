@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TheEmfield/chat-rooms/backend/internal/config"
+	"github.com/TheEmfield/chat-rooms/backend/repository/entity"
 	"github.com/gorilla/websocket"
 )
 
@@ -19,20 +20,25 @@ const (
 	staticDir   = "./web/static"
 )
 
+type storage interface {
+	UpsertRoom(ctx context.Context, room entity.Room) error
+	GetRoom(ctx context.Context, id string) (*entity.Room, error)
+	UpsertMessage(ctx context.Context, msg entity.Message) error
+	GetHistory(ctx context.Context, roomID string, limit int) ([]*entity.Message, error)
+}
+
 type WSServer interface {
 	Start() error
 	Stop(ctx context.Context) error
 }
 
 type room struct {
-	id          string
-	rmClients   map[*websocket.Conn]struct{}
-	messages    []*wsMessage
-	mutex       *sync.RWMutex
-	broadcast   chan *wsMessage
-	capacity    int
-	maxMessages int
-	logger      *slog.Logger
+	id        string
+	rmClients map[*websocket.Conn]struct{}
+	mutex     *sync.RWMutex
+	broadcast chan *wsMessage
+	capacity  int
+	logger    *slog.Logger
 }
 
 type roomInfo struct {
@@ -41,16 +47,14 @@ type roomInfo struct {
 	Capacity int    `json:"capacity"`
 }
 
-func newRoom(id string, capacity, maxMessages int, l *slog.Logger) *room {
+func newRoom(id string, capacity int, l *slog.Logger) *room {
 	return &room{
-		id:          id,
-		rmClients:   map[*websocket.Conn]struct{}{},
-		messages:    make([]*wsMessage, 0, maxMessages),
-		mutex:       &sync.RWMutex{},
-		broadcast:   make(chan *wsMessage),
-		capacity:    capacity,
-		maxMessages: maxMessages,
-		logger:      l,
+		id:        id,
+		rmClients: map[*websocket.Conn]struct{}{},
+		mutex:     &sync.RWMutex{},
+		broadcast: make(chan *wsMessage),
+		capacity:  capacity,
+		logger:    l,
 	}
 }
 
@@ -76,14 +80,6 @@ func (r *room) readFromClient(conn *websocket.Conn) {
 		}
 		msg.IPAddress = host
 		msg.Time = time.Now().Format("15:04")
-
-		r.mutex.Lock()
-		r.messages = append(r.messages, msg)
-		if len(r.messages) > r.maxMessages {
-			r.messages = r.messages[len(r.messages)-r.maxMessages:]
-		}
-		r.mutex.Unlock()
-
 		r.broadcast <- msg
 	}
 	r.mutex.Lock()
@@ -100,15 +96,17 @@ type wsSrv struct {
 	logger      *slog.Logger
 	wgRead      *sync.WaitGroup
 	wgBroadcast *sync.WaitGroup
+	storage     storage
+	maxMessages int
 }
 
-func NewWsServer(cfg *config.Config, l *slog.Logger) WSServer {
+func NewWsServer(cfg *config.Config, l *slog.Logger, st storage) WSServer {
 	m := http.NewServeMux()
 
 	rooms := make(map[string]*room)
 	for i := 1; i <= cfg.HTTP.NumberRooms; i++ {
 		id := fmt.Sprintf("room-%d", i)
-		rooms[id] = newRoom(id, cfg.HTTP.NumberClients, cfg.HTTP.NumberMessages, l)
+		rooms[id] = newRoom(id, cfg.HTTP.NumberClients, l)
 	}
 
 	return &wsSrv{
@@ -123,6 +121,8 @@ func NewWsServer(cfg *config.Config, l *slog.Logger) WSServer {
 		logger:      l,
 		wgRead:      &sync.WaitGroup{},
 		wgBroadcast: &sync.WaitGroup{},
+		storage:     st,
+		maxMessages: cfg.HTTP.NumberMessages,
 	}
 }
 
@@ -223,11 +223,23 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	room.mutex.Lock()
 	room.rmClients[conn] = struct{}{}
-	history := make([]*wsMessage, len(room.messages))
-	copy(history, room.messages)
 	room.mutex.Unlock()
+	ctx := context.Background()
+	historyEntities, err := ws.storage.GetHistory(ctx, roomID, ws.maxMessages)
+	if err != nil {
+		ws.logger.Error("error loading history from DB", "error", err)
+		historyEntities = make([]*entity.Message, 0)
+	}
 
-	if len(history) > 0 {
+	if len(historyEntities) > 0 {
+		history := make([]*wsMessage, 0, len(historyEntities))
+		for _, e := range historyEntities {
+			history = append(history, &wsMessage{
+				IPAddress: e.SenderIP,
+				Message:   e.Msg,
+				Time:      e.CreatedAt.Format("15:04"),
+			})
+		}
 		historyMsg := &wsMessage{
 			Type:     "history",
 			Messages: history,
@@ -244,6 +256,16 @@ func (ws *wsSrv) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 func (ws *wsSrv) broadcastRoom(r *room) {
 	for msg := range r.broadcast {
+		ctx := context.Background()
+		dbMsg := entity.Message{
+			RoomID:   r.id,
+			SenderIP: msg.IPAddress,
+			Msg:      msg.Message,
+		}
+		if err := ws.storage.UpsertMessage(ctx, dbMsg); err != nil {
+			ws.logger.Error("error saving message to DB", "error", err)
+		}
+
 		r.mutex.RLock()
 		for client := range r.rmClients {
 			if err := client.WriteJSON(msg); err != nil {
