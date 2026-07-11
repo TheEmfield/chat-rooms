@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/TheEmfield/chat-rooms/backend/repository/entity"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/entity"
 )
 
 func (p *Postgres) UpsertRoom(ctx context.Context, room entity.Room) error {

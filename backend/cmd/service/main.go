@@ -13,9 +13,9 @@ import (
 
 	"github.com/TheEmfield/chat-rooms/backend/internal/config"
 	"github.com/TheEmfield/chat-rooms/backend/internal/logger"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/entity"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/postgres"
 	"github.com/TheEmfield/chat-rooms/backend/internal/wsserver"
-	"github.com/TheEmfield/chat-rooms/backend/repository/entity"
-	"github.com/TheEmfield/chat-rooms/backend/repository/postgres"
 )
 
 func main() {

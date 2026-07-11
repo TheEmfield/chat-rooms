@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/TheEmfield/chat-rooms/backend/internal/config"
-	"github.com/TheEmfield/chat-rooms/backend/repository/entity"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/entity"
 	"github.com/gorilla/websocket"
 )
 
