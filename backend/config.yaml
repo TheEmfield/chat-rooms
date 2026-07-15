@@ -9,3 +9,8 @@ server:
   number_clients: 5
   number_messages: 30
   shutdown_timeout: "20s"
+
+postgres:
+  host: "postgres"
+  port: "5432"
+  ssl_mode: "disable"

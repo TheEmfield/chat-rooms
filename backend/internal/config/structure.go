@@ -3,8 +3,9 @@ package config
 import "time"
 
 type Config struct {
-	Logger Logger `yaml:"logger"`
-	HTTP   HTTP   `yaml:"server"`
+	Logger   Logger   `yaml:"logger"`
+	HTTP     HTTP     `yaml:"server"`
+	Postgres Postgres `yaml:"postgres"`
 }
 
 type Logger struct {
@@ -19,4 +20,13 @@ type HTTP struct {
 	NumberClients   int           `yaml:"number_clients"   env:"HTTP_NUMBER_CLIENTS"   env-default:"5"`
 	NumberMessages  int           `yaml:"number_messages"  env:"HTTP_NUMBER_MESSAGES"  env-default:"30"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"HTTP_SHUTDOWN_TIMEOUT" env-default:"20s"`
+}
+
+type Postgres struct {
+	Host     string `yaml:"host"     env:"POSTGRES_HOST"     env-default:"localhost"`
+	Port     string `yaml:"port"     env:"POSTGRES_PORT"     env-default:"5432"`
+	User     string `                env:"POSTGRES_USER"     validate:"required"`
+	Password string `                env:"POSTGRES_PASSWORD" validate:"required"`
+	DB       string `                env:"POSTGRES_DB"       validate:"required"`
+	SSLMode  string `yaml:"ssl_mode" env:"POSTGRES_SSL_MODE" env-default:"disable"`
 }

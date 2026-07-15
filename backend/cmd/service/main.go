@@ -11,9 +11,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/TheEmfield/chat-rooms/internal/config"
-	"github.com/TheEmfield/chat-rooms/internal/logger"
-	"github.com/TheEmfield/chat-rooms/internal/wsserver"
+	"github.com/TheEmfield/chat-rooms/backend/internal/config"
+	"github.com/TheEmfield/chat-rooms/backend/internal/logger"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/entity"
+	"github.com/TheEmfield/chat-rooms/backend/internal/repository/postgres"
+	"github.com/TheEmfield/chat-rooms/backend/internal/wsserver"
 )
 
 func main() {
@@ -44,7 +46,26 @@ func main() {
 }
 
 func run(cfg *config.Config, logger *slog.Logger) error {
-	wsSrv := wsserver.NewWsServer(cfg, logger)
+	psql, err := postgres.New(cfg)
+	if err != nil {
+		return fmt.Errorf("new database: %w", err)
+	}
+	defer psql.Close()
+
+	ctx := context.Background()
+	for i := 1; i <= cfg.HTTP.NumberRooms; i++ {
+		room := entity.Room{
+			ID:       fmt.Sprintf("room-%d", i),
+			Name:     fmt.Sprintf("Комната %d", i),
+			Capacity: cfg.HTTP.NumberClients,
+		}
+		if err := psql.UpsertRoom(ctx, room); err != nil {
+			return fmt.Errorf("init room %s: %w", room.ID, err)
+		}
+		logger.Info("room initialized", "id", room.ID, "capacity", room.Capacity)
+	}
+
+	wsSrv := wsserver.NewWsServer(cfg, logger, psql)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
